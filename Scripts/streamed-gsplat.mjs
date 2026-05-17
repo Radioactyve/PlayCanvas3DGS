@@ -97,6 +97,9 @@ class StreamedGsplat extends Script {
 
     _colorize = false;
 
+    /** @type {Asset|null} */
+    _mainAsset = null;
+
     initialize() {
         const app = this.app;
 
@@ -123,30 +126,7 @@ class StreamedGsplat extends Script {
         if (!this.splatUrl) {
             console.warn('[StreamedGsplat] No splatUrl provided.');
         } else {
-            const mainAsset = new Asset('MainGsplat_asset', 'gsplat', { url: this.splatUrl });
-            app.assets.add(mainAsset);
-            app.assets.load(mainAsset);
-            this._assets.push(mainAsset);
-
-            mainAsset.ready((a) => {
-                // Temporarily disable entity to allow unified property to be set
-                const wasEnabled = this.entity.enabled;
-                this.entity.enabled = false;
-
-                // Add component directly to this entity
-                this.entity.addComponent('gsplat', {
-                    unified: true,
-                    lodBaseDistance: this._getCurrentLodBaseDistance(),
-                    lodMultiplier: this._getCurrentLodMultiplier(),
-                    asset: a
-                });
-
-                // Restore entity enabled state
-                this.entity.enabled = wasEnabled;
-
-                // Apply initial preset
-                this._applyPreset();
-            });
+            this.loadMainSplat(this.splatUrl);
         }
 
         // Load environment splat - attach to child entity
@@ -182,6 +162,47 @@ class StreamedGsplat extends Script {
 
         this.once('destroy', () => {
             this.onDestroy();
+        });
+    }
+
+    loadMainSplat(url) {
+        if (!url) {
+            console.warn('[StreamedGsplat] Empty splat url passed to loadMainSplat.');
+            return;
+        }
+
+        this.splatUrl = url;
+
+        if (this._mainAsset) {
+            this._mainAsset.unload();
+            this.app.assets.remove(this._mainAsset);
+            this._assets = this._assets.filter((a) => a !== this._mainAsset);
+            this._mainAsset = null;
+        }
+
+        if (this.entity.gsplat) {
+            this.entity.removeComponent('gsplat');
+        }
+
+        const mainAsset = new Asset('MainGsplat_asset', 'gsplat', { url: this.splatUrl });
+        this.app.assets.add(mainAsset);
+        this.app.assets.load(mainAsset);
+        this._assets.push(mainAsset);
+        this._mainAsset = mainAsset;
+
+        mainAsset.ready((a) => {
+            const wasEnabled = this.entity.enabled;
+            this.entity.enabled = false;
+
+            this.entity.addComponent('gsplat', {
+                unified: true,
+                lodBaseDistance: this._getCurrentLodBaseDistance(),
+                lodMultiplier: this._getCurrentLodMultiplier(),
+                asset: a
+            });
+
+            this.entity.enabled = wasEnabled;
+            this._applyPreset();
         });
     }
 
@@ -244,7 +265,6 @@ class StreamedGsplat extends Script {
         app.scene.gsplat.lodRangeMin = range[0];
         app.scene.gsplat.lodRangeMax = range[1];
 
-        // Apply to main streaming asset only (environment doesn't support these settings)
         if (this.entity.gsplat) {
             this.entity.gsplat.lodBaseDistance = this._getCurrentLodBaseDistance();
             this.entity.gsplat.lodMultiplier = this._getCurrentLodMultiplier();
@@ -254,8 +274,6 @@ class StreamedGsplat extends Script {
     _setPreset(presetName) {
         this._currentPreset = presetName;
         this._applyPreset();
-
-        // Notify UI of preset change
         this.app.fire('ui:setPreset', presetName);
     }
 
@@ -282,14 +300,12 @@ class StreamedGsplat extends Script {
     }
 
     onDestroy() {
-        // Clean up event listeners
         this.app.off('preset:ultra');
         this.app.off('preset:high');
         this.app.off('preset:medium');
         this.app.off('preset:low');
         this.app.off('colorize:toggle');
 
-        // unload/remove assets
         for (let i = 0; i < this._assets.length; i++) {
             const a = this._assets[i];
             if (a) {
@@ -298,13 +314,12 @@ class StreamedGsplat extends Script {
             }
         }
         this._assets.length = 0;
+        this._mainAsset = null;
 
-        // remove gsplat component from entity if present
         if (this.entity.gsplat) {
             this.entity.removeComponent('gsplat');
         }
 
-        // destroy created children
         for (let j = 0; j < this._children.length; j++) {
             const c = this._children[j];
             if (c && c.destroy) c.destroy();
