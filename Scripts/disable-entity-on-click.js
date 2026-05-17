@@ -6,27 +6,15 @@ DisableEntitiesOnClick.attributes.add('targetEntities', {
     title: 'Target Entities'
 });
 
-DisableEntitiesOnClick.attributes.add('useManagerSlot', {
-    type: 'boolean',
-    default: false,
-    title: 'Use Manager Slot'
-});
-
 DisableEntitiesOnClick.attributes.add('managerEntity', {
     type: 'entity',
     title: 'Manager Entity'
 });
 
-DisableEntitiesOnClick.attributes.add('slotName', {
+DisableEntitiesOnClick.attributes.add('targetSlotNames', {
     type: 'string',
-    default: 'currentUI',
-    title: 'Slot Name'
-});
-
-type: 'boolean',
-DisableEntitiesOnClick.attributes.add('disableEntityFromSlot', {
-    default: false,
-    title: 'Disable Entity In Slot'
+    array: true,
+    title: 'Target Slot Names'
 });
 
 DisableEntitiesOnClick.prototype.initialize = function () {
@@ -41,16 +29,13 @@ DisableEntitiesOnClick.prototype.onClick = function () {
         if (target) target.enabled = false;
     }
 
-    if (!this.useManagerSlot) return;
-
     var managerScript = this.managerEntity && this.managerEntity.script && this.managerEntity.script.worldStateManager;
-    if (!managerScript) {
-        console.error('disableEntitiesOnClick: managerEntity missing worldStateManager script.');
-        return;
-    }
+    if (!managerScript) return;
 
-    if (this.disableEntityFromSlot) {
-        managerScript.disableSlot(this.slotName);
+    for (var j = 0; j < this.targetSlotNames.length; j++) {
+        var slotName = (this.targetSlotNames[j] || '').trim();
+        if (!slotName) continue;
+        managerScript.disableSlot(slotName);
     }
 };
 
