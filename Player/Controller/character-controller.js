@@ -275,7 +275,7 @@ CCScript.prototype.initialize = function () {
     this.controller.velocityDampingAir = this.velocityDampingAir;
     this.controller.jumpForce = this.jumpForce;
 
-    this.on('destroy', () => controller.destroy());
+    this.on('destroy', () => this.controller.destroy());
 };
 
 CCScript.prototype.update = function (dt) {
