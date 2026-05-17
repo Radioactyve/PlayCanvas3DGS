@@ -1,25 +1,25 @@
-var EnableEntityOnClick = pc.createScript('enableEntityOnClick');
+var EnableEntitiesOnClick = pc.createScript('enableEntitiesOnClick');
 
-EnableEntityOnClick.attributes.add('targetEntity', {
+EnableEntitiesOnClick.attributes.add('targetEntities', {
     type: 'entity',
-    title: 'Target Entity'
+    array: true,
+    title: 'Target Entities'
 });
 
-EnableEntityOnClick.prototype.initialize = function () {
+EnableEntitiesOnClick.prototype.initialize = function () {
     if (!this.entity.element) return;
     this.entity.element.on('click', this.onClick, this);
     this.entity.element.on('touchstart', this.onClick, this);
 };
 
-EnableEntityOnClick.prototype.onClick = function () {
-    if (!this.targetEntity) {
-        console.error('enableEntityOnClick: No targetEntity set.');
-        return;
+EnableEntitiesOnClick.prototype.onClick = function () {
+    for (var i = 0; i < this.targetEntities.length; i++) {
+        var target = this.targetEntities[i];
+        if (target) target.enabled = true;
     }
-    this.targetEntity.enabled = true;
 };
 
-EnableEntityOnClick.prototype.onDestroy = function () {
+EnableEntitiesOnClick.prototype.onDestroy = function () {
     if (!this.entity.element) return;
     this.entity.element.off('click', this.onClick, this);
     this.entity.element.off('touchstart', this.onClick, this);
