@@ -25,12 +25,23 @@ Controllers.prototype.initialize = function() {
 };
 
 Controllers.prototype._onInputSourceAdd = function (inputSource) {
+    if (!this.controllerTemplate) {
+        console.warn('[controllers] Missing controllerTemplate.');
+        return;
+    }
+
     // clone controller entity template
     var entity = this.controllerTemplate.clone();
+    if (!entity.script || !entity.script.controller) {
+        console.warn('[controllers] Cloned template is missing controller script.');
+        if (entity.destroy) entity.destroy();
+        return;
+    }
+
     // set input source
     entity.script.controller.setInputSource(inputSource);
     // reparent to camera parent entity
-    entity.reparent(this.cameraParent);
+    entity.reparent(this.cameraParent || this.app.root);
     entity.enabled = true;
 
     this._controllersBySource.push({

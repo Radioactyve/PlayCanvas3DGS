@@ -99,16 +99,6 @@ StreamedGlb.prototype._clearCurrentModel = function () {
     }
 };
 
-StreamedGlb.prototype.clearLoadedGlb = function () {
-    this._clearCurrentModel();
-
-    if (this.entity.collision) {
-        this.entity.removeComponent('collision');
-    }
-
-    this.glbUrl = '';
-};
-
 StreamedGlb.prototype._applyCollisionFromContainer = function (containerAsset) {
     var resource = containerAsset && containerAsset.resource;
     if (!resource) {

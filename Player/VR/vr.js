@@ -1,4 +1,4 @@
-var Vr = pc.createScript('vr');
+﻿var Vr = pc.createScript('vr');
 
 Vr.attributes.add('buttonVr', {
     type: 'entity',
@@ -10,42 +10,14 @@ Vr.attributes.add('cameraEntity', {
     title: 'Camera Entity'
 });
 
-Vr.attributes.add('textSupported', {
+Vr.attributes.add('controllerTemplate', {
     type: 'entity',
-    title: 'Supported Text'
+    title: 'Controller Template'
 });
 
-Vr.attributes.add('elementUnsupported', {
+Vr.attributes.add('controllersParentEntity', {
     type: 'entity',
-    title: 'Unsupported Message'
-});
-
-Vr.attributes.add('elementHttpsRequired', {
-    type: 'entity',
-    title: 'HTTPS Required Message'
-});
-
-Vr.attributes.add('labelElement', {
-    type: 'entity',
-    title: 'Button Label Element'
-});
-
-Vr.attributes.add('labelEnterText', {
-    type: 'string',
-    default: 'Enter VR',
-    title: 'Enter Label'
-});
-
-Vr.attributes.add('labelExitText', {
-    type: 'string',
-    default: 'Exit VR',
-    title: 'Exit Label'
-});
-
-Vr.attributes.add('useLocalFloorSpace', {
-    type: 'boolean',
-    default: true,
-    title: 'Use Local Floor Space'
+    title: 'Controllers Parent (Optional)'
 });
 
 Vr.attributes.add('normalModeEntities', {
@@ -60,33 +32,77 @@ Vr.attributes.add('vrModeEntities', {
     title: 'VR Mode Entities'
 });
 
-Vr.attributes.add('restoreCameraTransformOnExit', {
+Vr.attributes.add('useLocalFloorSpace', {
     type: 'boolean',
     default: true,
-    title: 'Restore Camera On Exit'
+    title: 'Use Local Floor Space'
 });
 
-Vr.attributes.add('reacquirePointerLockOnExit', {
+Vr.attributes.add('enableVrControllers', {
     type: 'boolean',
     default: true,
-    title: 'Reacquire Pointer Lock'
+    title: 'Enable VR Controllers'
 });
 
-Vr.attributes.add('xrRigRootEntity', {
+Vr.attributes.add('enableControllerLocomotion', {
+    type: 'boolean',
+    default: true,
+    title: 'Enable Controller Locomotion'
+});
+
+Vr.attributes.add('controllerMoveSpeed', {
+    type: 'number',
+    default: 1.5,
+    title: 'Controller Move Speed'
+});
+
+Vr.attributes.add('controllerMoveDeadZone', {
+    type: 'number',
+    default: 0.2,
+    min: 0,
+    max: 0.9,
+    title: 'Move Stick Dead Zone'
+});
+
+Vr.attributes.add('controllerTurnAngle', {
+    type: 'number',
+    default: 45,
+    title: 'Controller Snap Turn Angle'
+});
+
+Vr.attributes.add('controllerTurnDeadZone', {
+    type: 'number',
+    default: 0.6,
+    min: 0,
+    max: 0.9,
+    title: 'Turn Stick Dead Zone'
+});
+
+Vr.attributes.add('moveRelativeToHead', {
+    type: 'boolean',
+    default: true,
+    title: 'Move Relative To Head'
+});
+
+Vr.attributes.add('locomotionEntity', {
     type: 'entity',
-    title: 'XR Rig Root (Optional)'
+    title: 'Locomotion Entity (camera-controller)'
 });
 
 Vr.prototype.initialize = function () {
     this._onButtonPress = this.toggleSession.bind(this);
-    this._onAvailabilityChange = this.onAvailabilityChange.bind(this);
     this._onStart = this.onStart.bind(this);
     this._onEnd = this.onEnd.bind(this);
-    this._onInputSourceAdd = this.onInputSourceAdd.bind(this);
-    this._onReacquireInteraction = this._onReacquireInteraction.bind(this);
-    this._toggleLocked = false;
+    this._onAvailabilityChange = this._refreshUi.bind(this);
+    this._inVrSession = !!(this.app.xr && this.app.xr.active);
+    this._createdControllersManager = false;
 
     this.cameraEntity = this.cameraEntity || this._findFirstCameraEntity();
+    this._setupControllers();
+    this._turnLatch = false;
+    this._tmpMoveA = new pc.Vec3();
+    this._tmpMoveB = new pc.Vec3();
+    this._tmpMoveC = new pc.Vec3();
     this._bindButton();
     this._bindXrEvents();
     this._setMode(false);
@@ -96,33 +112,22 @@ Vr.prototype.initialize = function () {
 };
 
 Vr.prototype._bindButton = function () {
-    if (!this.buttonVr) {
-        console.warn('[vr] Assign buttonVr to start VR from UI.');
-        return;
-    }
+    if (!this.buttonVr) return;
 
     if (this.buttonVr.button) {
         this.buttonVr.button.on('click', this._onButtonPress, this);
     } else if (this.buttonVr.element) {
-        // Fallback only when there is no Button component
         this.buttonVr.element.on('click', this._onButtonPress, this);
         this.buttonVr.element.on('touchstart', this._onButtonPress, this);
     }
 };
 
 Vr.prototype._bindXrEvents = function () {
-    if (!this.app.xr) {
-        console.warn('[vr] app.xr is not available.');
-        return;
-    }
+    if (!this.app.xr) return;
 
     this.app.xr.on('available:' + pc.XRTYPE_VR, this._onAvailabilityChange, this);
     this.app.xr.on('start', this._onStart, this);
     this.app.xr.on('end', this._onEnd, this);
-
-    if (this.app.xr.input) {
-        this.app.xr.input.on('add', this._onInputSourceAdd, this);
-    }
 };
 
 Vr.prototype._unbind = function () {
@@ -137,76 +142,61 @@ Vr.prototype._unbind = function () {
         this.app.xr.off('available:' + pc.XRTYPE_VR, this._onAvailabilityChange, this);
         this.app.xr.off('start', this._onStart, this);
         this.app.xr.off('end', this._onEnd, this);
-
-        if (this.app.xr.input) {
-            this.app.xr.input.off('add', this._onInputSourceAdd, this);
-        }
     }
 
-    window.removeEventListener('mousedown', this._onReacquireInteraction, true);
-    window.removeEventListener('touchstart', this._onReacquireInteraction, true);
+    if (this._createdControllersManager && this.controllersManagerEntity && this.controllersManagerEntity.destroy) {
+        this.controllersManagerEntity.destroy();
+        this.controllersManagerEntity = null;
+        this._createdControllersManager = false;
+    }
 };
 
 Vr.prototype.toggleSession = function () {
-    if (this._toggleLocked) return;
-    this._toggleLocked = true;
-    setTimeout(function () {
-        this._toggleLocked = false;
-    }.bind(this), 250);
-
     if (this.app.xr && this.app.xr.active) {
         this.app.xr.end();
         return;
     }
-
     this.startSession();
 };
 
 Vr.prototype.startSession = function () {
     if (!this.app.xr || !this.app.xr.supported) {
-        console.warn('[vr] WebXR is not supported in this browser.');
-        this._refreshUi();
+        console.warn('[vr] WebXR is not supported.');
         return;
     }
 
-    if (!this.cameraEntity || !this.cameraEntity.camera) {
-        console.error('[vr] cameraEntity is missing a Camera component.');
+    if (this.app.xr.active) {
         return;
     }
 
     if (!this.app.xr.isAvailable(pc.XRTYPE_VR)) {
-        console.warn('[vr] VR session is not available on this device/browser.');
-        this._refreshUi();
+        console.warn('[vr] VR is not available.');
+        return;
+    }
+
+    if (!this.cameraEntity || !this.cameraEntity.camera) {
+        console.warn('[vr] cameraEntity must have a Camera component.');
         return;
     }
 
     var spaceType = this.useLocalFloorSpace ? pc.XRSPACE_LOCALFLOOR : pc.XRSPACE_LOCAL;
-    this._cacheNonXrCameraTransform();
-    this._cachePreXrWorldPose();
-    var options = {
-        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
+    this._startXr(spaceType, {
+        optionalFeatures: ['local-floor', 'bounded-floor'],
         callback: function (err) {
             if (err && spaceType !== pc.XRSPACE_LOCAL) {
-                console.warn('[vr] local-floor failed, retrying with local space.', err);
-                this._startXr(pc.XRSPACE_LOCAL, {
-                    callback: this._onStartError.bind(this)
-                });
+                this._startXr(pc.XRSPACE_LOCAL, { callback: this._onStartError.bind(this) });
             } else if (err) {
                 this._onStartError(err);
             }
         }.bind(this)
-    };
-
-    this._startXr(spaceType, options);
+    });
 };
 
 Vr.prototype._startXr = function (spaceType, options) {
-    var camera = this.cameraEntity.camera;
-
-    if (camera.startXr) {
-        camera.startXr(pc.XRTYPE_VR, spaceType, options);
-    } else {
-        this.app.xr.start(camera, pc.XRTYPE_VR, spaceType, options);
+    if (this.cameraEntity && this.cameraEntity.camera && this.cameraEntity.camera.startXr) {
+        this.cameraEntity.camera.startXr(pc.XRTYPE_VR, spaceType, options);
+    } else if (this.app.xr) {
+        this.app.xr.start(this.cameraEntity.camera, pc.XRTYPE_VR, spaceType, options);
     }
 };
 
@@ -214,32 +204,24 @@ Vr.prototype._onStartError = function (err) {
     if (err) {
         console.error('[vr] Failed to start VR session:', err);
     }
-    this._refreshUi();
-};
-
-Vr.prototype.onInputSourceAdd = function (inputSource) {
-    // PlayCanvas can route XR controller rays to Element/Button components.
-    inputSource.elementInput = true;
-};
-
-Vr.prototype.onAvailabilityChange = function () {
-    this._refreshUi();
 };
 
 Vr.prototype.onStart = function () {
-    this._compensateXrStartOffset();
+    this._inVrSession = true;
     this._setMode(true);
+    this._applyVrControllersMode(true);
+    if (this.app && this.app.fire) this.app.fire('vr:mode', true);
+    this._setupControllersRuntime(true);
     this._refreshUi();
-    this.app.fire('vr:mode', true);
 };
 
 Vr.prototype.onEnd = function () {
-    this._restoreNonXrCameraTransform();
-    this._resetCharacterInputState();
-    this._setupPointerLockRecovery();
+    this._inVrSession = false;
     this._setMode(false);
+    this._applyVrControllersMode(false);
+    if (this.app && this.app.fire) this.app.fire('vr:mode', false);
+    this._setupControllersRuntime(false);
     this._refreshUi();
-    this.app.fire('vr:mode', false);
 };
 
 Vr.prototype._setMode = function (inVr) {
@@ -249,67 +231,24 @@ Vr.prototype._setMode = function (inVr) {
 
 Vr.prototype._setEntitiesEnabled = function (entities, enabledState) {
     if (!entities) return;
-
     for (var i = 0; i < entities.length; i++) {
         var e = entities[i];
         if (!e) continue;
-        if (this._isSelfOrAncestor(e, this.entity)) continue;
-        if (this.buttonVr && this._isSelfOrAncestor(e, this.buttonVr)) continue;
         e.enabled = enabledState;
     }
 };
 
-Vr.prototype._isSelfOrAncestor = function (candidate, target) {
-    if (!candidate || !target) return false;
-    var n = target;
-    while (n) {
-        if (n === candidate) return true;
-        n = n.parent || null;
-    }
-    return false;
-};
-
 Vr.prototype._refreshUi = function () {
+    if (!this.buttonVr) return;
     var supported = !!(this.app.xr && this.app.xr.supported);
     var available = supported && this.app.xr.isAvailable(pc.XRTYPE_VR);
-    var active = supported && this.app.xr.active;
-    var secure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+    var active = supported && this._inVrSession;
 
-    if (this.buttonVr) {
-        this.buttonVr.enabled = supported && secure;
-
-        if (this.buttonVr.element) {
-            this.buttonVr.element.opacity = available || active ? 1 : 0.35;
-        }
-
-        if (this.buttonVr.children && this.buttonVr.children.length && this.buttonVr.children[0].element) {
-            this.buttonVr.children[0].element.opacity = available || active ? 1 : 0.45;
-        }
+    if (this.buttonVr.button) {
+        this.buttonVr.button.active = supported && available;
     }
-
-    if (this.textSupported) {
-        this.textSupported.enabled = supported && secure;
-    }
-
-    if (this.elementUnsupported) {
-        this.elementUnsupported.enabled = secure && !supported;
-    }
-
-    if (this.elementHttpsRequired) {
-        this.elementHttpsRequired.enabled = !secure;
-    }
-
-    this._updateButtonLabel(active);
-};
-
-Vr.prototype._updateButtonLabel = function (active) {
-    var labelEntity = this.labelElement;
-    if (!labelEntity && this.buttonVr && this.buttonVr.children && this.buttonVr.children.length) {
-        labelEntity = this.buttonVr.children[0];
-    }
-
-    if (labelEntity && labelEntity.element) {
-        labelEntity.element.text = active ? this.labelExitText : this.labelEnterText;
+    if (this.buttonVr.element) {
+        this.buttonVr.element.opacity = (supported && available) ? 1 : 0.4;
     }
 };
 
@@ -318,89 +257,159 @@ Vr.prototype._findFirstCameraEntity = function () {
     return cameras && cameras.length ? cameras[0].entity : null;
 };
 
-Vr.prototype._cacheNonXrCameraTransform = function () {
-    if (!this.cameraEntity) return;
-    this._cachedCameraLocalPosition = this.cameraEntity.getLocalPosition().clone();
-    this._cachedCameraLocalRotation = this.cameraEntity.getLocalRotation().clone();
+Vr.prototype._setupControllers = function () {
+    if (!this.enableVrControllers || !this.controllerTemplate) return;
+
+    if (!this.controllersManagerEntity) {
+        this.controllersManagerEntity = new pc.Entity('XR_ControllersRuntime');
+        this.app.root.addChild(this.controllersManagerEntity);
+        this.controllersManagerEntity.addComponent('script');
+        this._createdControllersManager = true;
+    } else if (!this.controllersManagerEntity.script) {
+        this.controllersManagerEntity.addComponent('script');
+    }
+
+    if (this.controllersManagerEntity.script && !this.controllersManagerEntity.script.controllers) {
+        this.controllersManagerEntity.script.create('controllers', {
+            attributes: {
+                controllerTemplate: this.controllerTemplate,
+                cameraParent: this.controllersParentEntity || this.cameraEntity && this.cameraEntity.parent || this.app.root
+            }
+        });
+    }
+
+    this.controllersManagerEntity.enabled = true;
 };
 
-Vr.prototype._cachePreXrWorldPose = function () {
-    if (!this.cameraEntity) return;
-    this._preXrCameraWorldPos = this.cameraEntity.getPosition().clone();
+Vr.prototype._applyVrControllersMode = function (inVr) {
+    if (this.controllersManagerEntity) {
+        this.controllersManagerEntity.enabled = !!(this.enableVrControllers && inVr);
+    }
+
+    if (this.locomotionEntity && this.locomotionEntity.script) {
+        var cc = this.locomotionEntity.script['camera-controller'] || this.locomotionEntity.script.cameraController;
+        if (cc) cc.enabled = !!inVr;
+    }
 };
 
-Vr.prototype._compensateXrStartOffset = function () {
-    if (!this.cameraEntity || !this._preXrCameraWorldPos) return;
+// Controller locomotion: read inputSources each frame and apply movement/turning
+Vr.prototype.update = function (dt) {
+    if (!this._inVrSession || !this.enableControllerLocomotion) return;
+    if (!this.app.xr || !this.app.xr.input) return;
 
-    var rigRoot = this.xrRigRootEntity || this.cameraEntity.parent;
-    if (!rigRoot) return;
+    var inputSources = this.app.xr.input.inputSources || [];
+    var moveAxes = null;
+    var turnAxes = null;
 
-    var currentWorldPos = this.cameraEntity.getPosition();
-    var delta = this._preXrCameraWorldPos.clone().sub(currentWorldPos);
-    if (delta.lengthSq() < 1e-8) return;
+    for (var i = 0; i < inputSources.length; i++) {
+        var inputSource = inputSources[i];
+        if (!inputSource || !inputSource.gamepad) continue;
 
+        var axes = this._readBestAxes(inputSource.gamepad);
+        if (!axes) continue;
+
+        if (inputSource.handedness === pc.XRHAND_LEFT || inputSource.handedness === 'left') {
+            moveAxes = axes;
+        } else if (inputSource.handedness === pc.XRHAND_RIGHT || inputSource.handedness === 'right') {
+            turnAxes = axes;
+        } else {
+            // Fallback: use vertical motion as move and horizontal as turn.
+            if (!moveAxes && Math.abs(axes.y) > this.controllerMoveDeadZone) moveAxes = axes;
+            if (!turnAxes && Math.abs(axes.x) > this.controllerTurnDeadZone) turnAxes = axes;
+        }
+    }
+
+    if (moveAxes) this._applyControllerMove(moveAxes, dt);
+    if (turnAxes) this._applyControllerTurn(turnAxes); else this._turnLatch = false;
+};
+
+Vr.prototype._readBestAxes = function (gamepad) {
+    if (!gamepad.axes || gamepad.axes.length < 2) return null;
+
+    var best = { x: 0, y: 0, magnitude: 0 };
+    var pairs = [ [2,3], [0,1] ];
+
+    for (var i = 0; i < pairs.length; i++) {
+        var ix = pairs[i][0];
+        var iy = pairs[i][1];
+        if (gamepad.axes.length <= iy) continue;
+
+        var x = gamepad.axes[ix] || 0;
+        var y = gamepad.axes[iy] || 0;
+        var magnitude = Math.sqrt(x * x + y * y);
+        if (magnitude > best.magnitude) {
+            best.x = x; best.y = y; best.magnitude = magnitude;
+        }
+    }
+
+    return best.magnitude > 0 ? best : null;
+};
+
+Vr.prototype._getRigRoot = function () {
+    return this.xrRigRootEntity || (this.cameraEntity && this.cameraEntity.parent) || null;
+};
+
+Vr.prototype._applyControllerMove = function (axes, dt) {
+    var x = Math.abs(axes.x) >= this.controllerMoveDeadZone ? axes.x : 0;
+    var y = Math.abs(axes.y) >= this.controllerMoveDeadZone ? axes.y : 0;
+    if (x === 0 && y === 0) return;
+
+    var rigRoot = this._getRigRoot();
+    if (!rigRoot || !this.cameraEntity) return;
+
+    var forward = this._tmpMoveA.copy(this.cameraEntity.forward);
+    forward.y = 0;
+    if (forward.lengthSq() > 1e-8) forward.normalize(); else forward.set(0,0,-1);
+
+    var right = this._tmpMoveB.set(forward.z, 0, -forward.x);
+    var move = this._tmpMoveC.set(0,0,0);
+    move.add(forward.mulScalar(-y));
+    move.add(right.mulScalar(x));
+
+    if (move.lengthSq() <= 1e-8) return;
+    move.normalize().mulScalar(this.controllerMoveSpeed * dt);
+
+    var targetPosition = rigRoot.getPosition().clone().add(move);
     if (rigRoot.rigidbody) {
-        var p = rigRoot.getPosition().clone().add(delta);
-        var r = rigRoot.getRotation().clone();
-        rigRoot.rigidbody.teleport(p, r);
+        rigRoot.rigidbody.teleport(targetPosition, rigRoot.getRotation());
     } else {
-        rigRoot.translate(delta);
+        rigRoot.setPosition(targetPosition);
     }
 };
 
-Vr.prototype._restoreNonXrCameraTransform = function () {
-    if (!this.restoreCameraTransformOnExit) return;
-    if (!this.cameraEntity) return;
-    if (!this._cachedCameraLocalPosition || !this._cachedCameraLocalRotation) return;
+Vr.prototype._applyControllerTurn = function (axes) {
+    var x = axes.x || 0;
+    if (Math.abs(x) < this.controllerTurnDeadZone) { this._turnLatch = false; return; }
+    if (this._turnLatch) return;
+    this._turnLatch = true;
 
-    this.cameraEntity.setLocalPosition(this._cachedCameraLocalPosition);
-    this.cameraEntity.setLocalRotation(this._cachedCameraLocalRotation);
+    var rigRoot = this._getRigRoot();
+    if (!rigRoot || !this.cameraEntity) return;
+
+    var yaw = x > 0 ? -this.controllerTurnAngle : this.controllerTurnAngle;
+    var cameraLocal = this.cameraEntity.getLocalPosition().clone();
+
+    rigRoot.translateLocal(cameraLocal);
+    rigRoot.rotateLocal(0, yaw, 0);
+    rigRoot.translateLocal(cameraLocal.scale(-1));
+
+    if (rigRoot.rigidbody) rigRoot.rigidbody.teleport(rigRoot.getPosition(), rigRoot.getRotation());
 };
 
-Vr.prototype._resetCharacterInputState = function () {
-    // Prevent stale movement/strafe values from remaining latched after XR session end.
-    this.app.fire('cc:move:forward', 0);
-    this.app.fire('cc:move:backward', 0);
-    this.app.fire('cc:move:left', 0);
-    this.app.fire('cc:move:right', 0);
-    this.app.fire('cc:jump', false);
-    this.app.fire('cc:sprint', false);
-};
+Vr.prototype._setupControllersRuntime = function (inVr) {
+    if (!this.enableVrControllers) return;
 
-Vr.prototype._setupPointerLockRecovery = function () {
-    if (!this.reacquirePointerLockOnExit) return;
-    if (!this.app.graphicsDevice || !this.app.graphicsDevice.canvas) return;
-
-    var canvas = this.app.graphicsDevice.canvas;
-
-    // Try immediate reacquire (works when exit was via button/touch gesture).
-    this._tryRequestPointerLock(canvas);
-
-    // If that fails (common when session ended via ESC/system gesture), reacquire on next interaction.
-    if (document.pointerLockElement !== canvas) {
-        window.addEventListener('mousedown', this._onReacquireInteraction, true);
-        window.addEventListener('touchstart', this._onReacquireInteraction, true);
+    if (!this.controllerTemplate) {
+        if (this.controllersManagerEntity) this.controllersManagerEntity.enabled = false;
+        return;
     }
-};
 
-Vr.prototype._onReacquireInteraction = function () {
-    if (!this.app.graphicsDevice || !this.app.graphicsDevice.canvas) return;
-    var canvas = this.app.graphicsDevice.canvas;
-    this._tryRequestPointerLock(canvas);
-
-    if (document.pointerLockElement === canvas) {
-        window.removeEventListener('mousedown', this._onReacquireInteraction, true);
-        window.removeEventListener('touchstart', this._onReacquireInteraction, true);
+    if (this.controllersManagerEntity) {
+        this.controllersManagerEntity.enabled = !!(this.enableVrControllers && inVr);
     }
-};
 
-Vr.prototype._tryRequestPointerLock = function (canvas) {
-    if (!canvas || document.pointerLockElement === canvas) return;
-    if (!canvas.requestPointerLock) return;
-
-    try {
-        canvas.requestPointerLock();
-    } catch (err) {
-        // No-op: browser can reject if not in a valid user gesture.
+    if (this.locomotionEntity && this.locomotionEntity.script) {
+        var cc = this.locomotionEntity.script['camera-controller'] || this.locomotionEntity.script.cameraController;
+        if (cc) cc.enabled = !!(inVr && !this.enableControllerLocomotion);
     }
 };

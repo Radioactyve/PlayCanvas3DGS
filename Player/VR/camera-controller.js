@@ -1,5 +1,4 @@
-var CameraController = pc.createScript('camera-controller');
-
+﻿var CameraController = pc.createScript('camera-controller');
 
 CameraController.attributes.add('height', {
     type: 'number',
@@ -43,16 +42,15 @@ CameraController.attributes.add('camera', {
     title: 'Camera Entity'
 });
 
-
-// initialize code called once per entity
 CameraController.prototype.initialize = function() {
     this.vec2A = new pc.Vec2();
     this.vec2B = new pc.Vec2();
     this.vec3A = new pc.Vec3();
-    
+    this.vec3B = new pc.Vec3();
+
     this.lastRotate = 0;
     this.lastRotateValue = 0;
-    
+
     this.app.on('controller:teleport', this.onTeleport, this);
     this.app.on('controller:move', this.onMove, this);
     this.app.on('controller:rotate', this.onRotate, this);
@@ -64,10 +62,14 @@ CameraController.prototype.initialize = function() {
     }, this);
 };
 
+CameraController.prototype._getActiveCamera = function() {
+    return (this.app.xr && this.app.xr.camera) ? this.app.xr.camera : this.camera;
+};
+
 CameraController.prototype.onTeleport = function(position) {
-    if (this.app.xr.type === pc.XRTYPE_AR)
+    if (this.app.xr && this.app.xr.type === pc.XRTYPE_AR)
         return;
-    
+
     this.vec3A.copy(this.camera.getLocalPosition()).scale(-1);
     this.entity.setPosition(position);
     this.entity.translate(0, this.height, 0);
@@ -75,32 +77,34 @@ CameraController.prototype.onTeleport = function(position) {
 };
 
 CameraController.prototype.onMove = function(x, y, dt) {
-    this.vec2A.set(x, y);
-    
-    if (this.vec2A.length()) {
-        this.vec2A.normalize();
-        
-        this.vec2B.x = this.camera.forward.x;
-        this.vec2B.y = this.camera.forward.z;
-        this.vec2B.normalize();
-        
-        var rad = Math.atan2(this.vec2B.x, this.vec2B.y) - (Math.PI / 2);
-        
-        var t =        this.vec2A.x * Math.sin(rad) - this.vec2A.y * Math.cos(rad);
-        this.vec2A.y = this.vec2A.y * Math.sin(rad) + this.vec2A.x * Math.cos(rad);
-        this.vec2A.x = t;
-            
-        this.vec2A.scale(this.movementSpeed);
-        this.entity.translate(this.vec2A.x * dt, 0, this.vec2A.y * dt);
-    }
+    if (!x && !y) return;
+
+    var activeCamera = this._getActiveCamera();
+    if (!activeCamera) return;
+
+    var forward = activeCamera.forward.clone();
+    forward.y = 0;
+    if (forward.lengthSq() < 1e-8) return;
+    forward.normalize();
+
+    var right = activeCamera.right.clone();
+    right.y = 0;
+    if (right.lengthSq() < 1e-8) return;
+    right.normalize();
+
+    forward.scale(-y * this.movementSpeed * dt);
+    right.scale(x * this.movementSpeed * dt);
+    forward.add(right);
+
+    this.entity.translate(forward, pc.SPACE_WORLD);
 };
 
 CameraController.prototype.onRotate = function(yaw, dt) {
     var now = Date.now();
-    
+
     if ((now - this.lastRotate) < 200)
         return;
-    
+
     if (this.lastRotateValue !== 0) {
         if (this.lastRotateValue > 0) {
             if (yaw < this.rotateResetThreshold) {
@@ -116,10 +120,11 @@ CameraController.prototype.onRotate = function(yaw, dt) {
             }
         }
     }
-    
+
     if (Math.abs(yaw) > this.rotateThreshold) {
         this.lastRotateValue = Math.sign(yaw);
-        
+        this.lastRotate = now;
+
         this.vec3A.copy(this.camera.getLocalPosition());
         this.entity.translateLocal(this.vec3A);
         this.entity.rotateLocal(0, Math.sign(yaw) * this.rotateSpeed, 0);
