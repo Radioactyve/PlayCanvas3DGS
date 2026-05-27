@@ -28,7 +28,11 @@ export class Css3Renderer {
 
         const stage = document.createElement('div');
         stage.style.overflow = 'hidden';
-        stage.style.pointerEvents = 'auto';
+        stage.style.pointerEvents = 'none';
+        stage.style.position = 'absolute';
+        stage.style.left = '0';
+        stage.style.top = '0';
+        stage.style.zIndex = '1';
         this._stageElement = stage;
 
         const canvas = document.getElementById('application-canvas');
@@ -123,6 +127,9 @@ export class Css3Plane {
         this.dom = dom || document.createElement('div');
         this.dom.style.position = 'absolute';
         this.dom.style.pointerEvents = 'auto';
+        this.dom.style.transformStyle = 'preserve-3d';
+        this.dom.style.backfaceVisibility = 'hidden';
+        this.dom.style.webkitBackfaceVisibility = 'hidden';
 
         this.entity = entity || new Entity();
         if (!entity) app.root.addChild(this.entity);
@@ -133,6 +140,7 @@ export class Css3Plane {
         this._maxWidth = 1920;
         this._maxHeight = 1080;
         this.pixelsPerWorldUnit = new Vec2(pixelsPerWorldUnit, pixelsPerWorldUnit);
+        this.flipFacing = false;
 
         this._renderer.addTarget(this);
         this._renderer.render();
@@ -143,7 +151,8 @@ export class Css3Plane {
         const s = wt.getScale();
         const width = Math.min(s.x * this.pixelsPerWorldUnit.x, this._maxWidth);
         const height = Math.min(s.z * this.pixelsPerWorldUnit.y, this._maxHeight);
-        const style = getObjectCSSMatrix(wt, width, height);
+        const facingFix = this.flipFacing ? 'rotateY(180deg)' : '';
+        const style = `${getObjectCSSMatrix(wt, width, height)}${facingFix}translateZ(0.1px)`;
 
         this.dom.style.width = `${Math.round(width)}px`;
         this.dom.style.height = `${Math.round(height)}px`;

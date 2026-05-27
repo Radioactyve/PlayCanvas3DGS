@@ -5,6 +5,7 @@ const LOOK_MAX_ANGLE = 90;
 const tmpVa = new Vec2();
 const tmpV1 = new Vec3();
 const tmpV2 = new Vec3();
+const tmpV3 = new Vec3();
 const tmpM1 = new Mat4();
 
 class CharacterController {
@@ -197,27 +198,36 @@ class CharacterController {
 
 
 _move(dt) {
-    // Get the camera's actual forward direction
-    const forward = this._camera.forward;
-    const right = this._camera.right;
-    
+    // Horizontal-only movement basis from camera yaw.
+    const forward = tmpV2.copy(this._camera.forward);
+    forward.y = 0;
+    if (forward.lengthSq() > 1e-8) {
+        forward.normalize();
+    } else {
+        forward.set(0, 0, -1);
+    }
+
+    const right = tmpV3.set(forward.z, 0, -forward.x);
+
     const dir = tmpV1.set(0, 0, 0);
     if (this.controls.forward) {
-        dir.add(tmpV2.copy(forward).mulScalar(this.controls.forward)); // Remove the negative
+        dir.add(forward.clone().mulScalar(this.controls.forward));
     }
     if (this.controls.backward) {
-        dir.add(tmpV2.copy(forward).mulScalar(-this.controls.backward)); // Add negative here
-    } 
+        dir.add(forward.clone().mulScalar(-this.controls.backward));
+    }
     if (this.controls.left) {
-        dir.add(tmpV2.copy(right).mulScalar(-this.controls.left));
+        dir.add(right.clone().mulScalar(-this.controls.left));
     }
     if (this.controls.right) {
-        dir.add(tmpV2.copy(right).mulScalar(this.controls.right));
+        dir.add(right.clone().mulScalar(this.controls.right));
     }
-    
-    // Zero out Y component to keep movement horizontal
-    dir.y = 0;
-    dir.normalize();
+
+    if (dir.lengthSq() > 1e-8) {
+        dir.normalize();
+    } else {
+        dir.set(0, 0, 0);
+    }
 
     let speed = this._grounded ? this.speedGround : this.speedAir;
     if (this.controls.sprint) {
